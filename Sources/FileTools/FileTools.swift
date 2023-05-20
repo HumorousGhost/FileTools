@@ -1,4 +1,5 @@
 import Foundation
+import Alamofire
 
 public struct FileTools {
     public static let defaultUrl = (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0] as URL).appendingPathComponent("FileTools")
@@ -10,7 +11,7 @@ public struct FileTools {
     /// - Parameters:
     ///   - url: url
     ///   - completed: call back
-    static func getFiles(url: URL = Self.defaultUrl, completed: @escaping ([FileBase]) -> Void) {
+    public static func getFiles(url: URL = Self.defaultUrl, completed: @escaping ([FileBase]) -> Void) {
         if self.isExist(path: url.path) {
             self.create(name: "", baseUrl: url)
         }
@@ -53,14 +54,14 @@ public struct FileTools {
     /// Determine whether the path exists
     /// - Parameter path: path
     /// - Returns: is exists
-    static func isExist(path: String) -> Bool {
+    public static func isExist(path: String) -> Bool {
         return manager.fileExists(atPath: path)
     }
     
     /// Determine whether the path is a folder
     /// - Parameter path: path
     /// - Returns: is folder
-    static func isFolder(path: String) -> Bool {
+    public static func isFolder(path: String) -> Bool {
         var directoryExist = ObjCBool.init(false)
         let fileExist = manager.fileExists(atPath: path, isDirectory: &directoryExist)
         return fileExist && directoryExist.boolValue
@@ -73,7 +74,7 @@ public struct FileTools {
     ///   - baseUrl: url
     ///   - isAutoName: is auto name
     /// - Returns: is success
-    static func create(name: String, baseUrl: URL, isAutoName: Bool = false) -> Bool {
+    public static func create(name: String, baseUrl: URL, isAutoName: Bool = false) -> Bool {
         let folder = baseUrl.appendingPathComponent(name, isDirectory: true)
         let exist = manager.fileExists(atPath: folder.path)
         if !exist {
@@ -104,7 +105,7 @@ public struct FileTools {
     ///   - name: file/folder name
     ///   - baseUrl: base url
     /// - Returns: is success
-    static func delete(name: String, baseUrl: URL = Self.defaultUrl) -> Bool {
+    public static func delete(name: String, baseUrl: URL = Self.defaultUrl) -> Bool {
         let path = baseUrl.appendingPathComponent(name)
         guard self.isExist(path: path.path) else {
             return false
@@ -123,7 +124,7 @@ public struct FileTools {
     ///   - oldPath: old url
     ///   - newPath: old url
     /// - Returns: is success
-    static func move(oldUrl: URL, newUrl: URL) -> Bool {
+    public static func move(oldUrl: URL, newUrl: URL) -> Bool {
         if self.isExist(path: newUrl.path) {
             self.delete(name: "", baseUrl: newUrl)
         }
@@ -143,7 +144,7 @@ public struct FileTools {
     ///   - newName: new name
     ///   - baseUrl: base url
     /// - Returns: is success
-    static func rename(oldName: String, newName: String, baseUrl: URL) -> Bool {
+    public static func rename(oldName: String, newName: String, baseUrl: URL) -> Bool {
         let old = baseUrl.appendingPathComponent(oldName)
         let new = baseUrl.appendingPathComponent(newName)
         if self.isFolder(path: old.path) {
@@ -167,14 +168,77 @@ public struct FileTools {
             }
         }
     }
+    
+    
+    /// download file
+    /// - Parameters:
+    ///   - netUrl: net url
+    ///   - localUrl: local url
+    ///   - fileName: file name
+    ///   - isAutoName: is auto name
+    ///   - success: success call back
+    ///   - failure: failure call back
+    public static func download(netUrl: URL?, localUrl: URL, fileName: String, isAutoName: Bool = false, success: @escaping (Bool) -> Void, failure: @escaping (Error?) -> Void) {
+        guard netUrl != nil else {
+            failure(nil)
+            return
+        }
+        var path = localUrl.appendingPathComponent(fileName)
+        let pathExtension = fileName.pathExtension
+        let name = fileName.deletePathExtension
+        if isAutoName {
+            var number = 0
+            while self.isExist(path: path.path) {
+                number += 1
+                path = localUrl.appendingPathComponent(name + "(\(number))").appendingPathExtension(pathExtension)
+            }
+        } else {
+            if self.isExist(path: path.path) {
+                self.delete(name: "", baseUrl: path)
+            }
+        }
+        
+        let destination: DownloadRequest.Destination = { _, _ in
+            return (path, [.removePreviousFile, .createIntermediateDirectories])
+        }
+        let request = URLRequest(url: netUrl!)
+        AF.download(request, to: destination).response { response in
+            if response.error != nil {
+                failure(response.error)
+            } else {
+                success(true)
+            }
+        }
+    }
 }
 
 @available(iOS 13.0, *)
 extension FileTools {
+    
+    /// get file list
+    /// - Parameter url: url
+    /// - Returns: FileBase list
     public static func getFiles(url: URL = Self.defaultUrl) async -> [FileBase] {
         await withCheckedContinuation({ result in
             self.getFiles(url: url) { models in
                 result.resume(returning: models)
+            }
+        })
+    }
+    
+    /// download url file
+    /// - Parameters:
+    ///   - netUrl: net file
+    ///   - localUrl: local url
+    ///   - fileName: file name
+    ///   - isAutoName: is auto name
+    /// - Returns: result
+    public static func download(netUrl: URL?, localUrl: URL, fileName: String, isAutoName: Bool = false) async -> (success: Bool, error: Error?) {
+        await withCheckedContinuation({ result in
+            download(netUrl: netUrl, localUrl: localUrl, fileName: fileName, isAutoName: isAutoName) { isSuccess in
+                result.resume(returning: (isSuccess, nil))
+            } failure: { error in
+                result.resume(returning: (false, error))
             }
         })
     }
